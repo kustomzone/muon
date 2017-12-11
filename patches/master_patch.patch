@@ -509,6 +509,116 @@ index 7ee1ec91e6ecb8cd9e237f0e67063ed704566ea6..9198607c50f23d7757016dcfb7526993
    // Finds TabStripModel which has a WebContents whose id is the given
    // web_contents_id, and returns the WebContents index and the TabStripModel.
    int FindTabStripModelById(int64_t target_web_contents_id,
+diff --git a/chrome/browser/safe_browsing/safe_browsing_blocking_page.cc b/chrome/browser/safe_browsing/safe_browsing_blocking_page.cc
+index 5b50863736f2306202e8345d83be2f399ed2c371..271eda272c64922dd55438a5364c787f49262a77 100644
+--- a/chrome/browser/safe_browsing/safe_browsing_blocking_page.cc
++++ b/chrome/browser/safe_browsing/safe_browsing_blocking_page.cc
+@@ -10,7 +10,6 @@
+ #include "chrome/browser/browser_process.h"
+ #include "chrome/browser/history/history_service_factory.h"
+ #include "chrome/browser/interstitials/chrome_controller_client.h"
+-#include "chrome/browser/interstitials/chrome_metrics_helper.h"
+ #include "chrome/browser/profiles/profile.h"
+ #include "chrome/browser/renderer_preferences_util.h"
+ #include "chrome/browser/safe_browsing/safe_browsing_service.h"
+@@ -194,20 +193,6 @@ void SafeBrowsingBlockingPage::FinishThreatDetails(const base::TimeDelta& delay,
+   // shutting down.
+   if (!g_browser_process->safe_browsing_service())
+     return;
+-
+-  // Finish computing threat details. TriggerManager will decide if its safe to
+-  // send the report.
+-  bool report_sent = g_browser_process->safe_browsing_service()
+-                         ->trigger_manager()
+-                         ->FinishCollectingThreatDetails(
+-                             TriggerType::SECURITY_INTERSTITIAL, web_contents(),
+-                             delay, did_proceed, num_visits,
+-                             sb_error_ui()->get_error_display_options());
+-
+-  if (report_sent) {
+-    controller()->metrics_helper()->RecordUserInteraction(
+-        security_interstitials::MetricsHelper::EXTENDED_REPORTING_IS_ENABLED);
+-  }
+ }
+ 
+ // static
+@@ -275,14 +260,8 @@ SafeBrowsingBlockingPage::CreateControllerClient(
+       web_contents->GetBrowserContext());
+   DCHECK(profile);
+ 
+-  std::unique_ptr<ChromeMetricsHelper> metrics_helper =
+-      base::MakeUnique<ChromeMetricsHelper>(
+-          web_contents, unsafe_resources[0].url,
+-          GetReportingInfo(unsafe_resources),
+-          GetSamplingEventName(GetInterstitialReason(unsafe_resources)));
+-
+   return base::MakeUnique<SecurityInterstitialControllerClient>(
+-      web_contents, std::move(metrics_helper), profile->GetPrefs(),
++      web_contents, std::move(nullptr), profile->GetPrefs(),
+       ui_manager->app_locale(), ui_manager->default_safe_page());
+ }
+ 
+diff --git a/chrome/browser/safe_browsing/safe_browsing_service.cc b/chrome/browser/safe_browsing/safe_browsing_service.cc
+index b30ec89669e6734f1f319d49ac2568858685a30f..98cbbdc30a68d808d3f7b32a4701ee036ed7327c 100644
+--- a/chrome/browser/safe_browsing/safe_browsing_service.cc
++++ b/chrome/browser/safe_browsing/safe_browsing_service.cc
+@@ -82,7 +82,7 @@ SafeBrowsingServiceFactory* SafeBrowsingService::factory_ = NULL;
+ class SafeBrowsingServiceFactoryImpl : public SafeBrowsingServiceFactory {
+  public:
+   SafeBrowsingService* CreateSafeBrowsingService() override {
+-    return new SafeBrowsingService(V4FeatureList::GetV4UsageStatus());
++    return new SafeBrowsingService(V4FeatureList::V4UsageStatus::V4_INSTANTIATED);
+   }
+ 
+  private:
+@@ -465,26 +465,7 @@ void SafeBrowsingService::Stop(bool shutdown) {
+ void SafeBrowsingService::Observe(int type,
+                                   const content::NotificationSource& source,
+                                   const content::NotificationDetails& details) {
+-  switch (type) {
+-    case chrome::NOTIFICATION_PROFILE_CREATED: {
+-      DCHECK_CURRENTLY_ON(BrowserThread::UI);
+-      Profile* profile = content::Source<Profile>(source).ptr();
+-      services_delegate_->CreatePasswordProtectionService(profile);
+-      if (!profile->IsOffTheRecord())
+-        AddPrefService(profile->GetPrefs());
+-      break;
+-    }
+-    case chrome::NOTIFICATION_PROFILE_DESTROYED: {
+-      DCHECK_CURRENTLY_ON(BrowserThread::UI);
+-      Profile* profile = content::Source<Profile>(source).ptr();
+-      services_delegate_->RemovePasswordProtectionService(profile);
+-      if (!profile->IsOffTheRecord())
+-        RemovePrefService(profile->GetPrefs());
+-      break;
+-    }
+-    default:
+-      NOTREACHED();
+-  }
++  return;
+ }
+ 
+ void SafeBrowsingService::AddPrefService(PrefService* pref_service) {
+diff --git a/chrome/browser/safe_browsing/services_delegate_impl.cc b/chrome/browser/safe_browsing/services_delegate_impl.cc
+index d3814b98f3590ea9a888d654a35dae7ecaac04a1..53cffdc8e82045ba7dd830fac45e70e27325dc3a 100644
+--- a/chrome/browser/safe_browsing/services_delegate_impl.cc
++++ b/chrome/browser/safe_browsing/services_delegate_impl.cc
+@@ -183,14 +183,7 @@ void ServicesDelegateImpl::StopOnIOThread(bool shutdown) {
+ }
+ 
+ void ServicesDelegateImpl::CreatePasswordProtectionService(Profile* profile) {
+-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+-  DCHECK(profile);
+-  auto it = password_protection_service_map_.find(profile);
+-  DCHECK(it == password_protection_service_map_.end());
+-  std::unique_ptr<ChromePasswordProtectionService> service =
+-      base::MakeUnique<ChromePasswordProtectionService>(safe_browsing_service_,
+-                                                        profile);
+-  password_protection_service_map_[profile] = std::move(service);
++  return;
+ }
+ 
+ void ServicesDelegateImpl::RemovePasswordProtectionService(Profile* profile) {
 diff --git a/chrome/common/BUILD.gn b/chrome/common/BUILD.gn
 index 476a165dd2b1f4d724c3b2a5d8fd30b994d1dd05..d9dd99e293a4adcd357927023f38f289718bdfad 100644
 --- a/chrome/common/BUILD.gn
@@ -1814,6 +1924,19 @@ index bf0ece1e723ba1a0644961cfd3a01ce3c14c892a..5e7d3dbb9da51a5abb0447bc04c90c9b
                                    HolderIsFirstArgument);
    }
    static void SetAsFunctionHandler(v8::Isolate* isolate,
+diff --git a/google_apis/google_api_keys.cc b/google_apis/google_api_keys.cc
+index 2e8437ed136e682540835ef4738e3519f9cb6051..4ec8bd06b4ee76a398947540c76e2450ed4cdcca 100644
+--- a/google_apis/google_api_keys.cc
++++ b/google_apis/google_api_keys.cc
+@@ -28,7 +28,7 @@
+ 
+ // Used to indicate an unset key/id/secret.  This works better with
+ // various unit tests than leaving the token empty.
+-#define DUMMY_API_TOKEN "dummytoken"
++#define DUMMY_API_TOKEN "AIzaSyAH90V94EcZBP5oH7oc-mXQrSKgASVxER8"
+ 
+ #if !defined(GOOGLE_API_KEY)
+ #define GOOGLE_API_KEY DUMMY_API_TOKEN
 diff --git a/media/base/media_switches.cc b/media/base/media_switches.cc
 index f1a096e649290ef2e2ce2cc30891f547a6dc196f..1338eb43287476a108454e316dbfb853c000f1b4 100644
 --- a/media/base/media_switches.cc
