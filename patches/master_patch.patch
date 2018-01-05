@@ -559,46 +559,29 @@ index 5b50863736f2306202e8345d83be2f399ed2c371..271eda272c64922dd55438a5364c787f
  }
  
 diff --git a/chrome/browser/safe_browsing/safe_browsing_service.cc b/chrome/browser/safe_browsing/safe_browsing_service.cc
-index b30ec89669e6734f1f319d49ac2568858685a30f..98cbbdc30a68d808d3f7b32a4701ee036ed7327c 100644
+index b30ec89669e6734f1f319d49ac2568858685a30f..a349124807aa0725a25aefc0bc0804cb9af7f1db 100644
 --- a/chrome/browser/safe_browsing/safe_browsing_service.cc
 +++ b/chrome/browser/safe_browsing/safe_browsing_service.cc
-@@ -82,7 +82,7 @@ SafeBrowsingServiceFactory* SafeBrowsingService::factory_ = NULL;
- class SafeBrowsingServiceFactoryImpl : public SafeBrowsingServiceFactory {
-  public:
-   SafeBrowsingService* CreateSafeBrowsingService() override {
--    return new SafeBrowsingService(V4FeatureList::GetV4UsageStatus());
-+    return new SafeBrowsingService(V4FeatureList::V4UsageStatus::V4_INSTANTIATED);
-   }
- 
-  private:
-@@ -465,26 +465,7 @@ void SafeBrowsingService::Stop(bool shutdown) {
- void SafeBrowsingService::Observe(int type,
-                                   const content::NotificationSource& source,
-                                   const content::NotificationDetails& details) {
--  switch (type) {
--    case chrome::NOTIFICATION_PROFILE_CREATED: {
--      DCHECK_CURRENTLY_ON(BrowserThread::UI);
--      Profile* profile = content::Source<Profile>(source).ptr();
+@@ -469,17 +469,13 @@ void SafeBrowsingService::Observe(int type,
+     case chrome::NOTIFICATION_PROFILE_CREATED: {
+       DCHECK_CURRENTLY_ON(BrowserThread::UI);
+       Profile* profile = content::Source<Profile>(source).ptr();
 -      services_delegate_->CreatePasswordProtectionService(profile);
 -      if (!profile->IsOffTheRecord())
 -        AddPrefService(profile->GetPrefs());
--      break;
--    }
--    case chrome::NOTIFICATION_PROFILE_DESTROYED: {
--      DCHECK_CURRENTLY_ON(BrowserThread::UI);
--      Profile* profile = content::Source<Profile>(source).ptr();
++      AddPrefService(profile->GetPrefs());
+       break;
+     }
+     case chrome::NOTIFICATION_PROFILE_DESTROYED: {
+       DCHECK_CURRENTLY_ON(BrowserThread::UI);
+       Profile* profile = content::Source<Profile>(source).ptr();
 -      services_delegate_->RemovePasswordProtectionService(profile);
 -      if (!profile->IsOffTheRecord())
 -        RemovePrefService(profile->GetPrefs());
--      break;
--    }
--    default:
--      NOTREACHED();
--  }
-+  return;
- }
- 
- void SafeBrowsingService::AddPrefService(PrefService* pref_service) {
++      RemovePrefService(profile->GetPrefs());
+       break;
+     }
+     default:
 diff --git a/chrome/browser/safe_browsing/services_delegate_impl.cc b/chrome/browser/safe_browsing/services_delegate_impl.cc
 index d3814b98f3590ea9a888d654a35dae7ecaac04a1..53cffdc8e82045ba7dd830fac45e70e27325dc3a 100644
 --- a/chrome/browser/safe_browsing/services_delegate_impl.cc
