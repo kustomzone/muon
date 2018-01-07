@@ -201,6 +201,105 @@ index 247d24220beb7d176b890d7c2d45bdd2dfd8db99..c270bba0fabb557e8d3d1df8ac166bbb
  
    ProfileWriter* const writer_;  // weak
    const base::WeakPtr<ExternalProcessImporterHost> host_;
+diff --git a/chrome/browser/interstitials/chrome_metrics_helper.cc b/chrome/browser/interstitials/chrome_metrics_helper.cc
+index 860c919d1a656acf63a5a0875484d59d5dd40515..35c9a27119148fbce09e70771d301a3817a932f2 100644
+--- a/chrome/browser/interstitials/chrome_metrics_helper.cc
++++ b/chrome/browser/interstitials/chrome_metrics_helper.cc
+@@ -12,10 +12,6 @@
+ #include "content/public/browser/web_contents.h"
+ #include "extensions/features/features.h"
+ 
+-#if BUILDFLAG(ENABLE_EXTENSIONS)
+-#include "chrome/browser/extensions/api/experience_sampling_private/experience_sampling.h"
+-#endif
+-
+ #if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
+ #include "chrome/browser/ssl/captive_portal_metrics_recorder.h"
+ #endif
+@@ -59,58 +55,8 @@ void ChromeMetricsHelper::RecordExtraShutdownMetrics() {
+ 
+ void ChromeMetricsHelper::RecordExtraUserDecisionMetrics(
+     security_interstitials::MetricsHelper::Decision decision) {
+-#if BUILDFLAG(ENABLE_EXTENSIONS)
+-  if (!sampling_event_.get()) {
+-    sampling_event_.reset(new extensions::ExperienceSamplingEvent(
+-        sampling_event_name_, request_url_,
+-        web_contents_->GetLastCommittedURL(),
+-        web_contents_->GetBrowserContext()));
+-  }
+-  switch (decision) {
+-    case PROCEED:
+-      sampling_event_->CreateUserDecisionEvent(
+-          extensions::ExperienceSamplingEvent::kProceed);
+-      break;
+-    case DONT_PROCEED:
+-      sampling_event_->CreateUserDecisionEvent(
+-          extensions::ExperienceSamplingEvent::kDeny);
+-      break;
+-    case SHOW:
+-    case PROCEEDING_DISABLED:
+-    case MAX_DECISION:
+-      break;
+-  }
+-#endif
+ }
+ 
+ void ChromeMetricsHelper::RecordExtraUserInteractionMetrics(
+     security_interstitials::MetricsHelper::Interaction interaction) {
+-#if BUILDFLAG(ENABLE_EXTENSIONS)
+-  if (!sampling_event_.get()) {
+-    sampling_event_.reset(new extensions::ExperienceSamplingEvent(
+-        sampling_event_name_, request_url_,
+-        web_contents_->GetLastCommittedURL(),
+-        web_contents_->GetBrowserContext()));
+-  }
+-  switch (interaction) {
+-    case SHOW_LEARN_MORE:
+-      sampling_event_->set_has_viewed_learn_more(true);
+-      break;
+-    case SHOW_ADVANCED:
+-      sampling_event_->set_has_viewed_details(true);
+-      break;
+-    case SHOW_PRIVACY_POLICY:
+-    case SHOW_DIAGNOSTIC:
+-    case RELOAD:
+-    case OPEN_TIME_SETTINGS:
+-    case TOTAL_VISITS:
+-    case SET_EXTENDED_REPORTING_ENABLED:
+-    case SET_EXTENDED_REPORTING_DISABLED:
+-    case EXTENDED_REPORTING_IS_ENABLED:
+-    case REPORT_PHISHING_ERROR:
+-    case SHOW_WHITEPAPER:
+-    case MAX_INTERACTION:
+-      break;
+-  }
+-#endif
+ }
+diff --git a/chrome/browser/interstitials/chrome_metrics_helper.h b/chrome/browser/interstitials/chrome_metrics_helper.h
+index 641f7d9f74656271a9271c57bbd0f216ddc8dc0a..18e3785ee539d5a267f0a8a94784c1d1f7f3612a 100644
+--- a/chrome/browser/interstitials/chrome_metrics_helper.h
++++ b/chrome/browser/interstitials/chrome_metrics_helper.h
+@@ -17,10 +17,6 @@ namespace content {
+ class WebContents;
+ }
+ 
+-namespace extensions {
+-class ExperienceSamplingEvent;
+-}
+-
+ class CaptivePortalMetricsRecorder;
+ 
+ // This class adds desktop-Chrome-specific metrics (extension experience
+@@ -53,9 +49,6 @@ class ChromeMetricsHelper : public security_interstitials::MetricsHelper {
+ #endif
+   const GURL request_url_;
+   const std::string sampling_event_name_;
+-#if BUILDFLAG(ENABLE_EXTENSIONS)
+-  std::unique_ptr<extensions::ExperienceSamplingEvent> sampling_event_;
+-#endif
+ #if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
+   std::unique_ptr<CaptivePortalMetricsRecorder> captive_portal_recorder_;
+ #endif
 diff --git a/chrome/browser/metrics/metrics_reporting_state.cc b/chrome/browser/metrics/metrics_reporting_state.cc
 index 183a1e7a246c01a1500a9a05e055f892deaffe56..5172ed442244f26a674c650705d96282ae6ec836 100644
 --- a/chrome/browser/metrics/metrics_reporting_state.cc
@@ -510,18 +609,10 @@ index 7ee1ec91e6ecb8cd9e237f0e67063ed704566ea6..9198607c50f23d7757016dcfb7526993
    // web_contents_id, and returns the WebContents index and the TabStripModel.
    int FindTabStripModelById(int64_t target_web_contents_id,
 diff --git a/chrome/browser/safe_browsing/safe_browsing_blocking_page.cc b/chrome/browser/safe_browsing/safe_browsing_blocking_page.cc
-index 5b50863736f2306202e8345d83be2f399ed2c371..271eda272c64922dd55438a5364c787f49262a77 100644
+index 5b50863736f2306202e8345d83be2f399ed2c371..655cb90ef69156802b1f227f7f31210c6d83beae 100644
 --- a/chrome/browser/safe_browsing/safe_browsing_blocking_page.cc
 +++ b/chrome/browser/safe_browsing/safe_browsing_blocking_page.cc
-@@ -10,7 +10,6 @@
- #include "chrome/browser/browser_process.h"
- #include "chrome/browser/history/history_service_factory.h"
- #include "chrome/browser/interstitials/chrome_controller_client.h"
--#include "chrome/browser/interstitials/chrome_metrics_helper.h"
- #include "chrome/browser/profiles/profile.h"
- #include "chrome/browser/renderer_preferences_util.h"
- #include "chrome/browser/safe_browsing/safe_browsing_service.h"
-@@ -194,20 +193,6 @@ void SafeBrowsingBlockingPage::FinishThreatDetails(const base::TimeDelta& delay,
+@@ -194,20 +194,6 @@ void SafeBrowsingBlockingPage::FinishThreatDetails(const base::TimeDelta& delay,
    // shutting down.
    if (!g_browser_process->safe_browsing_service())
      return;
@@ -542,22 +633,6 @@ index 5b50863736f2306202e8345d83be2f399ed2c371..271eda272c64922dd55438a5364c787f
  }
  
  // static
-@@ -275,14 +260,8 @@ SafeBrowsingBlockingPage::CreateControllerClient(
-       web_contents->GetBrowserContext());
-   DCHECK(profile);
- 
--  std::unique_ptr<ChromeMetricsHelper> metrics_helper =
--      base::MakeUnique<ChromeMetricsHelper>(
--          web_contents, unsafe_resources[0].url,
--          GetReportingInfo(unsafe_resources),
--          GetSamplingEventName(GetInterstitialReason(unsafe_resources)));
--
-   return base::MakeUnique<SecurityInterstitialControllerClient>(
--      web_contents, std::move(metrics_helper), profile->GetPrefs(),
-+      web_contents, std::move(nullptr), profile->GetPrefs(),
-       ui_manager->app_locale(), ui_manager->default_safe_page());
- }
- 
 diff --git a/chrome/browser/safe_browsing/safe_browsing_service.cc b/chrome/browser/safe_browsing/safe_browsing_service.cc
 index b30ec89669e6734f1f319d49ac2568858685a30f..a349124807aa0725a25aefc0bc0804cb9af7f1db 100644
 --- a/chrome/browser/safe_browsing/safe_browsing_service.cc
